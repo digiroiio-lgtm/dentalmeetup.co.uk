@@ -10,13 +10,16 @@ export default function Header() {
         <nav aria-label="Main navigation">
           <ul className="nav-list">
             <li>
-              <a href="#how-it-works">How It Works</a>
+              <Link href="/uk-dental-meetups/">UK Meet-Ups</Link>
             </li>
             <li>
-              <a href="#cities">Cities</a>
+              <a href="/#how-it-works">How It Works</a>
             </li>
             <li>
-              <a href="#register" className="nav-cta">
+              <a href="/#cities">Cities</a>
+            </li>
+            <li>
+              <a href="/#register" className="nav-cta">
                 Register Interest
               </a>
             </li>

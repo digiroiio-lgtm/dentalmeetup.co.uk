@@ -1,6 +1,8 @@
 'use client';
 
 import { useState, FormEvent } from 'react';
+import type { LeadData } from '@/types';
+import { trackEvent, AnalyticsEvents } from '@/lib/analytics';
 
 const CITIES = [
   'London',
@@ -9,6 +11,9 @@ const CITIES = [
   'Leeds',
   'Glasgow',
   'Liverpool',
+  'Bristol',
+  'Cardiff',
+  'Edinburgh',
   'Other',
 ];
 
@@ -24,46 +29,51 @@ const TREATMENTS = [
 
 const CONTACT_METHODS = ['WhatsApp', 'Phone', 'Email'] as const;
 
-interface FormFields {
-  firstName: string;
-  email: string;
-  mobile: string;
-  city: string;
-  treatment: string;
-  contactMethod: string;
-  consent: boolean;
-}
+// Phase 2 UI uses a subset of LeadData fields.
+// The full schema is defined in src/types/index.ts for Phase 3 multi-step upgrade.
+type FormFields = Pick<
+  LeadData,
+  'firstName' | 'email' | 'mobile' | 'meetupCity' | 'treatmentInterest' | 'preferredContactMethod' | 'marketingConsent'
+>;
 
 type FieldErrors = Partial<Record<keyof FormFields, string>>;
 
-const EMPTY_FORM: FormFields = {
-  firstName: '',
-  email: '',
-  mobile: '',
-  city: '',
-  treatment: '',
-  contactMethod: '',
-  consent: false,
-};
+function makeEmpty(defaultCity: string): FormFields {
+  return {
+    firstName: '',
+    email: '',
+    mobile: '',
+    meetupCity: defaultCity,
+    treatmentInterest: [],
+    preferredContactMethod: '',
+    marketingConsent: false,
+  };
+}
 
 function validate(fields: FormFields): FieldErrors {
   const errors: FieldErrors = {};
   if (!fields.firstName.trim()) errors.firstName = 'First name is required.';
-  if (
-    !fields.email.trim() ||
-    !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(fields.email)
-  ) {
+  if (!fields.email.trim() || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(fields.email))
     errors.email = 'A valid email address is required.';
-  }
   if (!fields.mobile.trim()) errors.mobile = 'Mobile number is required.';
-  if (!fields.city) errors.city = 'Please select a city.';
-  if (!fields.treatment) errors.treatment = 'Please select a treatment interest.';
-  if (!fields.consent) errors.consent = 'You must agree to be contacted.';
+  if (!fields.meetupCity) errors.meetupCity = 'Please select a city.';
+  if (fields.treatmentInterest.length === 0)
+    errors.treatmentInterest = 'Please select a treatment interest.';
+  if (!fields.marketingConsent)
+    errors.marketingConsent = 'You must agree to be contacted.';
   return errors;
 }
 
-export default function RegisterForm() {
-  const [fields, setFields] = useState<FormFields>(EMPTY_FORM);
+interface Props {
+  defaultCity?: string;
+  heading?: string;
+}
+
+export default function RegisterForm({
+  defaultCity = '',
+  heading = 'Register Your Interest',
+}: Props) {
+  const [fields, setFields] = useState<FormFields>(makeEmpty(defaultCity));
   const [errors, setErrors] = useState<FieldErrors>({});
   const [submitted, setSubmitted] = useState(false);
   const [submitting, setSubmitting] = useState(false);
@@ -71,25 +81,42 @@ export default function RegisterForm() {
   const set = (patch: Partial<FormFields>) =>
     setFields((prev) => ({ ...prev, ...patch }));
 
+  const toggleTreatment = (value: string) => {
+    const next = fields.treatmentInterest.includes(value)
+      ? fields.treatmentInterest.filter((t) => t !== value)
+      : [...fields.treatmentInterest, value];
+    set({ treatmentInterest: next });
+    trackEvent(AnalyticsEvents.TREATMENT_INTEREST_SELECT, { treatment: value });
+  };
+
   const handleSubmit = async (e: FormEvent) => {
     e.preventDefault();
     const next = validate(fields);
     setErrors(next);
     if (Object.keys(next).length > 0) return;
 
+    trackEvent(AnalyticsEvents.LEAD_FORM_SUBMIT, {
+      city: fields.meetupCity,
+      treatment: fields.treatmentInterest,
+    });
+
     setSubmitting(true);
 
     // TODO: POST to CRM/API endpoint when available
-    // Example:
     // await fetch('/api/register', {
     //   method: 'POST',
     //   headers: { 'Content-Type': 'application/json' },
-    //   body: JSON.stringify(fields),
+    //   body: JSON.stringify({
+    //     ...fields,
+    //     landingPage: window.location.pathname,
+    //     submissionTimestamp: new Date().toISOString(),
+    //   }),
     // });
 
     await new Promise<void>((resolve) => setTimeout(resolve, 400));
     setSubmitting(false);
     setSubmitted(true);
+    trackEvent(AnalyticsEvents.PRIORITY_LIST_JOIN, { city: fields.meetupCity });
   };
 
   if (submitted) {
@@ -99,8 +126,8 @@ export default function RegisterForm() {
           <div className="form-success">
             <h2>You&apos;re on the list!</h2>
             <p>
-              Thank you, {fields.firstName}. We&apos;ll be in touch when we confirm
-              meet-up dates near you.
+              Thank you, {fields.firstName}. We&apos;ll be in touch when we
+              confirm meet-up dates near you.
             </p>
           </div>
         </div>
@@ -111,7 +138,7 @@ export default function RegisterForm() {
   return (
     <section id="register" className="register" aria-labelledby="register-heading">
       <div className="container">
-        <h2 id="register-heading">Register Your Interest</h2>
+        <h2 id="register-heading">{heading}</h2>
         <form className="register-form" onSubmit={handleSubmit} noValidate>
 
           {/* First Name */}
@@ -173,13 +200,13 @@ export default function RegisterForm() {
 
           {/* City */}
           <div className="form-group">
-            <label htmlFor="city">Your City *</label>
+            <label htmlFor="meetupCity">Your City *</label>
             <select
-              id="city"
-              value={fields.city}
-              onChange={(e) => set({ city: e.target.value })}
-              aria-describedby={errors.city ? 'city-error' : undefined}
-              aria-invalid={!!errors.city}
+              id="meetupCity"
+              value={fields.meetupCity}
+              onChange={(e) => set({ meetupCity: e.target.value })}
+              aria-describedby={errors.meetupCity ? 'city-error' : undefined}
+              aria-invalid={!!errors.meetupCity}
             >
               <option value="">Select a city</option>
               {CITIES.map((c) => (
@@ -188,36 +215,34 @@ export default function RegisterForm() {
                 </option>
               ))}
             </select>
-            {errors.city && (
+            {errors.meetupCity && (
               <span id="city-error" className="field-error" role="alert">
-                {errors.city}
+                {errors.meetupCity}
               </span>
             )}
           </div>
 
-          {/* Treatment */}
-          <div className="form-group">
-            <label htmlFor="treatment">Treatment Interest *</label>
-            <select
-              id="treatment"
-              value={fields.treatment}
-              onChange={(e) => set({ treatment: e.target.value })}
-              aria-describedby={errors.treatment ? 'treatment-error' : undefined}
-              aria-invalid={!!errors.treatment}
-            >
-              <option value="">Select treatment</option>
+          {/* Treatment interest — multi-select checkboxes */}
+          <fieldset className="form-group form-fieldset">
+            <legend>Treatment Interest *</legend>
+            <div className="checkbox-group">
               {TREATMENTS.map((t) => (
-                <option key={t} value={t}>
-                  {t}
-                </option>
+                <label key={t} className="checkbox-label">
+                  <input
+                    type="checkbox"
+                    checked={fields.treatmentInterest.includes(t)}
+                    onChange={() => toggleTreatment(t)}
+                  />
+                  <span>{t}</span>
+                </label>
               ))}
-            </select>
-            {errors.treatment && (
-              <span id="treatment-error" className="field-error" role="alert">
-                {errors.treatment}
+            </div>
+            {errors.treatmentInterest && (
+              <span className="field-error" role="alert">
+                {errors.treatmentInterest}
               </span>
             )}
-          </div>
+          </fieldset>
 
           {/* Contact method (optional) */}
           <fieldset className="form-group form-fieldset">
@@ -229,8 +254,10 @@ export default function RegisterForm() {
                     type="radio"
                     name="contactMethod"
                     value={method}
-                    checked={fields.contactMethod === method}
-                    onChange={(e) => set({ contactMethod: e.target.value })}
+                    checked={fields.preferredContactMethod === method}
+                    onChange={(e) =>
+                      set({ preferredContactMethod: e.target.value })
+                    }
                   />
                   {method}
                 </label>
@@ -243,19 +270,21 @@ export default function RegisterForm() {
             <label className="checkbox-label">
               <input
                 type="checkbox"
-                checked={fields.consent}
-                onChange={(e) => set({ consent: e.target.checked })}
-                aria-describedby={errors.consent ? 'consent-error' : undefined}
-                aria-invalid={!!errors.consent}
+                checked={fields.marketingConsent}
+                onChange={(e) => set({ marketingConsent: e.target.checked })}
+                aria-describedby={
+                  errors.marketingConsent ? 'consent-error' : undefined
+                }
+                aria-invalid={!!errors.marketingConsent}
               />
               <span>
-                I agree to be contacted about UK dental meet-ups and my treatment
-                enquiry. *
+                I agree to be contacted about UK dental meet-ups and my
+                treatment enquiry. *
               </span>
             </label>
-            {errors.consent && (
+            {errors.marketingConsent && (
               <span id="consent-error" className="field-error" role="alert">
-                {errors.consent}
+                {errors.marketingConsent}
               </span>
             )}
           </div>
